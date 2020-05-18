@@ -9,7 +9,7 @@
 #include <stdlib.h>
 #include <stdint.h>
 
-//#define _DEBUG
+#define _DEBUG
 #ifdef _DEBUG
 #define debug_s(x)	{x;}
 #else
@@ -140,10 +140,6 @@ int CatsEye_loadJson(CatsEye *this, char *name)
 #define YSIZE		256
 #define DATA_XSIZE	4096
 #define DATA_YSIZE	2048
-#define KERNEL_W	256
-//#define KERNEL_H	281	// weight(YUV): 287136/4/256
-//#define KERNEL_H	284	// weight(RGB): 290016/4/256
-#define KERNEL_H	2048	// weight(RGB): 290016/4/256
 
 float X[4*DATA_XSIZE*DATA_YSIZE*2];
 
@@ -213,22 +209,37 @@ void waifu2x_ocl_run(CatsEye *cat, float *yuv, uint8_t *s, int sx, int sy, uint8
 				yuv[(y*256+x)*4+2] = b/256.0;
 			}
 
-/*			X[(y*256+x)*4  ] = yuv[(y*256+x)*4];
-			X[(y*256+x)*4+1] = yuv[(y*256+x)*4];
-			X[(y*256+x)*4+2] = yuv[(y*256+x)*4];
-			X[(y*256+x)*4+3] = yuv[(y*256+x)*4];*/
 			X[(y*256+x)] = yuv[(y*256+x)*4];
 		}
 	}
 //	debug_s(stbi_write_png("output_256.png", 256, 256, 3, p, 0));
 //	debug_s(stbi_write_png("output_y.png", 256, 256, 1, yuv, 0));
 
+/*	int inputs = 0;
+	//int outputs = (ocl_woff-ocl_off)/2;//256*256*cat->u[0].in;
+	int outputs = 0;*/
+//	oclWrite(_args[0].p, sizeof(float)*ocl_off, sizeof(float)*256*256*cat->u[0].in, X);
 	debug_s(clock_start());
 	for (int i=0; i<cat->layers; i++) {
 		debug_s(printf("ch in:%d ch out:%d %d %d w:%2.4f b:%2.4f\n", cat->u[i].in, cat->u[i].out, (cat->u[i].in+3)/4, cat->ws[i], cat->wdata[cat->ws[i]], cat->bdata[cat->bs[i]]));
+
 		ocl_convolution_LReLU(X, cat->u[i].in, 256, 256, &cat->wdata[cat->ws[i]], cat->u[i].ksize, cat->u[i].padding, cat->u[i].stride, X, cat->u[i].out, &cat->bdata[cat->bs[i]]);
 
+//		ocl_conv_LReLU(inputs, cat->u[i].in, 256, 256, cat->ws[i], cat->u[i].ksize, cat->u[i].padding, cat->u[i].stride, outputs, cat->u[i].out, cat->bs[i]);
+
+		//inputs = outputs;
+		//if (outputs) outputs = 0;
+		//else outputs = 256*256*cat->u[i].out;
+/*		if (inputs) {
+			outputs = inputs;
+			inputs = 0;
+		} else {
+			inputs = outputs;
+			outputs = 0;
+		}*/
+
 #ifdef _DEBUG
+//		oclRead(_args[0].p, sizeof(float)*(ocl_off+inputs), sizeof(float)*256*256*cat->u[i].out, X);
 		char buff[256];
 		sprintf(buff, "output2x_%02d.png", i+1);
 		result(buff, 256/**cat->u[i].out*/, 256);
@@ -236,8 +247,16 @@ void waifu2x_ocl_run(CatsEye *cat, float *yuv, uint8_t *s, int sx, int sy, uint8
 #endif
 	}
 	debug_s(clock_end());
+/*	oclRead(_args[0].p, sizeof(float)*(ocl_off+inputs), sizeof(float)*256*256*cat->u[cat->layers-1].out, X);
 
-//	float *d = X;
+	char o[256*256];
+	for (int y=0; y<height; y++) {
+		for (int x=0; x<width; x++) {
+			o[(y*256+x)] = X[(y*256+x)]*256;
+		}
+	}
+	stbi_write_png("output2x_.png", 256, 256, 1, o, 0);*/
+
 	for (int y=8; y<YSIZE-8; y++) {
 		for (int x=8; x<XSIZE-8; x++) {
 	//for (int y=0; y<YSIZE; y++) {
@@ -311,21 +330,34 @@ int waifu2x_ocl(char *name, char *output, char *model, float scale)
 	CatsEye cat;
 	int r = CatsEye_loadJson(&cat, model);
 	assert(!r && "*.json file not found!");
-/*	cat.wdata = recalloc(cat.wdata, sizeof(real)*cat.wsize, sizeof(real)*KERNEL_W*KERNEL_H*4); // 256*281
-	cat.bdata = recalloc(cat.bdata, sizeof(real)*cat.bsize, sizeof(real)*(cat.bsize+3));
-	assert(cat.wdata);
-	assert(cat.bdata);*/
+
+	// calc the needed memory
+	int size = 0;
+	int off = 0;
+	for (int i=0; i<cat.layers; i++) {
+//		int s = 256*256 *cat.u[i].in *cat.u[i].ksize *cat.u[i].ksize + 256*256*cat.u[i].out;
+//		int s = 256*256*cat.u[i].in*cat.u[i].ksize*cat.u[i].ksize +256*256*cat.u[i].out +256*256*cat.u[i].in;
+		int s = 256*256*cat.u[i].in*cat.u[i].ksize*cat.u[i].ksize;
+		if (s>size) size = s;
+
+//		int o = 256*256*cat.u[i].out +256*256*cat.u[i].in;
+//		if (o>off) off = o;
+		int o = 256*256*cat.u[i].out;
+		if (o>off) off = o;
+		o = 256*256*cat.u[i].in;
+		if (o>off) off = o;
+	}
+//	size += cat.wsize+cat.bsize;
+	size += cat.wsize+cat.bsize +off*2;
+	size *= sizeof(float);
+	printf("Using memory: %.1f MB\n", size/1024.0/1024.0);
 
 	int platform = 0;
 	int device = 0;
-//	sgemm_ocl_init(platform, device, (256*256*3*2 +cat.wsize+cat.bsize +256*256*256)*sizeof(float));
 //	sgemm_ocl_init(platform, device, 2576980377);
-	sgemm_ocl_init(platform, device, 1576980377);
-
-/*	args[2].size = sizeof(real)*KERNEL_W*KERNEL_H*4;
-	args[2].s = cat.wdata;
-	args[4].size = sizeof(real)*(cat.bsize+3);
-	args[4].s = cat.bdata;*/
+//	sgemm_ocl_init(platform, device, 1576980377);
+	sgemm_ocl_init(platform, device, size);
+	ocl_conv_init(cat.wdata, cat.wsize, cat.bdata, cat.bsize, off*2);
 
 	float *yuv = calloc(256*256*(4+2), sizeof(float));
 //	uint8_t *o = calloc(XSIZE*YSIZE, 3);

@@ -176,7 +176,7 @@ __kernel void im2col(__global float* gm, const int8 _info)
 float *_mat;
 int _info[8];
 args_t _args[] = {
-	{ CL_MEM_READ_WRITE,  0, 0, 0, OCL_BUFFER },
+	{ CL_MEM_READ_WRITE|CL_MEM_ALLOC_HOST_PTR,  0, 0, 0, OCL_BUFFER },
 	{ 0, sizeof(int)*8, 0, _info, 0 },
 	{ 0, 0, 0, 0, 0 },
 };
@@ -202,7 +202,7 @@ void sgemm_ocl_init(int platform, int device, size_t size)
 //	printf("sgemm_ocl_init: %lu\n", size);
 
 	oclSetup(platform, device);
-	oclKernel(_kernel, _ksz, "-cl-denorms-are-zero -cl-finite-math-only -cl-fast-relaxed-math -Werror", sgemm_kcode);
+	oclKernel(_kernel, _ksz, "-cl-denorms-are-zero -cl-finite-math-only -cl-fast-relaxed-math -Werror -cl-std=CL2.0", sgemm_kcode);
 	oclKernelArgs(_kernel, _ksz);
 }
 static inline void sgemm_ocl(char ta, char tb, int m, int n, int k, float *a, float *b, float *c)
@@ -340,4 +340,44 @@ static inline void ocl_convolution_LReLU(float *inputs, int ich, int w, int h, f
 	oclRun(_kernel+3);
 //	printf("clEnqueueReadBuffer: %lu %lu\n", sizeof(float)*_info[5], sizeof(float)*wcol*hcol*ch);
 	oclRead(_args[0].p, sizeof(float)*_info[5], sizeof(float)*wcol*hcol*ch, outputs);
+}
+int ocl_wsize;
+int ocl_off;
+int ocl_woff;
+static inline void ocl_conv_init(float *weights, int wsize, float *bias, int bsize, /*float *X, int size,*/ int woff)
+{
+	oclWrite(_args[0].p, 0, sizeof(float)*wsize, weights);
+	oclWrite(_args[0].p, sizeof(float)*wsize, sizeof(float)*bsize, bias);
+//	oclWrite(_args[0].p, sizeof(float)*(wsize+bsize), sizeof(float)*size, X);
+	ocl_wsize = wsize;
+	ocl_off = wsize+bsize;
+	ocl_woff = ocl_off + woff;
+}
+static inline void ocl_conv_LReLU(int inputs, int ich, int w, int h, int weights, int k, int pad, int stride, int outputs, int ch, int bias)
+{
+	// im2col(pix, 3, h, w, 4, 4, 2, 2, 1, 1, workspace);
+	int hcol = (h + 2 * pad - k) / stride + 1;
+	int wcol = (w + 2 * pad - k) / stride + 1;
+	_info[0] = ocl_off + inputs;		// inputs
+	_info[1] = ich;
+	_info[2] = h;
+	_info[3] = w;
+	_info[4] = k;
+	_info[5] = pad;
+	_info[6] = stride;
+	_info[7] = ocl_woff;			// outputs
+	_kernel[2].global_size[0] = ceil_int(_info[0], 16);
+	oclRun(_kernel+2);
+
+	// sgemm_ocl('N', 'T', ch, wcol*hcol, k*k, magic_kernel, workspace, pix);
+	_info[0] = ch;
+	_info[1] = wcol*hcol /* *batch */;
+	_info[2] = k*k*ich;
+	_info[3] = weights;			// a (weights)
+	_info[4] = ocl_woff;			// b (col)
+	_info[5] = ocl_off + outputs;		// c
+	_info[6] = ocl_wsize + bias;		// bias
+	_kernel[3].global_size[0] = ceil_int(_info[0], TS);
+	_kernel[3].global_size[1] = ceil_int(_info[1], TS);
+	oclRun(_kernel+3);
 }
