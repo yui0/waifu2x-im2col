@@ -4,6 +4,7 @@
 //		©2020 Yuichiro Nakada
 //---------------------------------------------------------
 
+// clang -Os waifu2x_im2col.c -o waifu2x_im2col `pkg-config --libs --cflags gl egl gbm` -lglfw -lm
 // clang -Os waifu2x_im2col.c -o waifu2x_im2col `pkg-config --libs --cflags OpenCL`
 #define _CRT_SECURE_NO_WARNINGS 1
 #include <stdlib.h>
@@ -17,7 +18,8 @@
 #endif
 
 #include "clock.h"
-#include "sgemm_ocl1.h"
+//#include "sgemm_ocl1.h"
+#include "sgemm_gl1.h"
 
 #define PARG_IMPLEMENTATION
 #include "parg.h"
@@ -111,9 +113,15 @@ int CatsEye_loadJson(CatsEye *this, char *name)
 		int kH = json_object_get_number(o, "kH");
 		int in = json_object_get_number(o, "nInputPlane");
 		int out = json_object_get_number(o, "nOutputPlane");
+		int dW = json_object_get_number(o, "dW");
+		int dH = json_object_get_number(o, "dH");
+		int padW = json_object_get_number(o, "padW");
+		int padH = json_object_get_number(o, "padH");
 		this->u[i].ksize = kW;
-		this->u[i].stride = 1;
-		this->u[i].padding = 1;
+//		this->u[i].stride = 1;
+//		this->u[i].padding = 1;
+		this->u[i].stride = json_object_has_value(o, "dW") ? dW : 1;
+		this->u[i].padding = json_object_has_value(o, "dW") ? padW : 1;
 		this->u[i].in = in;
 		this->u[i].out = out;
 
@@ -210,6 +218,8 @@ void waifu2x_ocl_run(CatsEye *cat, float *yuv, uint8_t *s, int sx, int sy, uint8
 			}
 
 			X[(y*256+x)] = yuv[(y*256+x)*4];
+			X[(y*256+x)+256*256] = yuv[(y*256+x)*4+1];
+			X[(y*256+x)+256*256*2] = yuv[(y*256+x)*4+2];
 		}
 	}
 //	debug_s(stbi_write_png("output_256.png", 256, 256, 3, p, 0));
@@ -223,13 +233,11 @@ void waifu2x_ocl_run(CatsEye *cat, float *yuv, uint8_t *s, int sx, int sy, uint8
 	for (int i=0; i<cat->layers; i++) {
 		debug_s(printf("ch in:%d ch out:%d %d %d w:%2.4f b:%2.4f\n", cat->u[i].in, cat->u[i].out, (cat->u[i].in+3)/4, cat->ws[i], cat->wdata[cat->ws[i]], cat->bdata[cat->bs[i]]));
 
-		ocl_convolution_LReLU(X, cat->u[i].in, 256, 256, &cat->wdata[cat->ws[i]], cat->u[i].ksize, cat->u[i].padding, cat->u[i].stride, X, cat->u[i].out, &cat->bdata[cat->bs[i]]);
+		//ocl_convolution_LReLU(X, cat->u[i].in, 256, 256, &cat->wdata[cat->ws[i]], cat->u[i].ksize, cat->u[i].padding, cat->u[i].stride, X, cat->u[i].out, &cat->bdata[cat->bs[i]]);
+		gl_convolution_LReLU(X, cat->u[i].in, 256, 256, &cat->wdata[cat->ws[i]], cat->u[i].ksize, cat->u[i].padding, cat->u[i].stride, X, cat->u[i].out, &cat->bdata[cat->bs[i]]);
 
 //		ocl_conv_LReLU(inputs, cat->u[i].in, 256, 256, cat->ws[i], cat->u[i].ksize, cat->u[i].padding, cat->u[i].stride, outputs, cat->u[i].out, cat->bs[i]);
 
-		//inputs = outputs;
-		//if (outputs) outputs = 0;
-		//else outputs = 256*256*cat->u[i].out;
 /*		if (inputs) {
 			outputs = inputs;
 			inputs = 0;
@@ -282,9 +290,12 @@ void waifu2x_ocl_run(CatsEye *cat, float *yuv, uint8_t *s, int sx, int sy, uint8
 //				int r = d[(y*256+x)*4]*256.0;
 //				int g = d[(y*256+x)*4+1]*256.0;
 //				int b = d[(y*256+x)*4+2]*256.0;
-				int r = X[(y*256+x)*3]*256.0;
+/*				int r = X[(y*256+x)*3]*256.0;
 				int g = X[(y*256+x)*3+1]*256.0;
-				int b = X[(y*256+x)*3+2]*256.0;
+				int b = X[(y*256+x)*3+2]*256.0;*/
+				int r = X[(y*256+x)]*256.0;
+				int g = X[(y*256+x)+256*256]*256.0;
+				int b = X[(y*256+x)+256*256*2]*256.0;
 				/*p[(y*wx+x)*3] = r;
 				p[(y*wx+x)*3+1] = g;
 				p[(y*wx+x)*3+2] = b;*/
@@ -356,8 +367,9 @@ int waifu2x_ocl(char *name, char *output, char *model, float scale)
 	int device = 0;
 //	sgemm_ocl_init(platform, device, 2576980377);
 //	sgemm_ocl_init(platform, device, 1576980377);
-	sgemm_ocl_init(platform, device, size);
-	ocl_conv_init(cat.wdata, cat.wsize, cat.bdata, cat.bsize, off*2);
+	//sgemm_ocl_init(platform, device, size);
+	//ocl_conv_init(cat.wdata, cat.wsize, cat.bdata, cat.bsize, off*2);
+	sgemm_gl_init(size, size, size);
 
 	float *yuv = calloc(256*256*(4+2), sizeof(float));
 //	uint8_t *o = calloc(XSIZE*YSIZE, 3);
@@ -377,7 +389,8 @@ int waifu2x_ocl(char *name, char *output, char *model, float scale)
 	free(yuv);
 	free(pix);
 
-	sgemm_ocl_finish();
+//	sgemm_ocl_finish();
+	sgemm_gl_finish();
 
 	// shrink edge by -16
 	sx -= 16;

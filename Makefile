@@ -16,8 +16,10 @@ OBJS	= $(patsubst %.c,%.o,$(CSRC)) $(patsubst %.cpp,%.o,$(CPPSRC))
 #USE_GLES:= 1
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Linux)
-CFLAGS  += `pkg-config --cflags OpenCL`
-LDFLAGS	+= `pkg-config --libs OpenCL`
+#CFLAGS  += `pkg-config --cflags OpenCL`
+#LDFLAGS	+= `pkg-config --libs OpenCL`
+CFLAGS  += `pkg-config --cflags gl egl gbm`
+LDFLAGS	+= `pkg-config --libs gl egl gbm` -lglfw -lm
 endif
 ifeq ($(UNAME_S),Darwin)
 	LDFLAGS	+= -framework opencl
