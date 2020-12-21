@@ -196,14 +196,14 @@ static inline void gl_convolution_LReLU(float *inputs, int ich, int w, int h, fl
 	int hcol = (h + 2 * pad - k) / stride + 1;
 	int wcol = (w + 2 * pad - k) / stride + 1;
 
-	// gemm('N', 'N', ch, wcol*hcol, k*k, magic_kernel, workspace, pix);
+	// gemm('N', 'N', ch, wcol*hcol, k*k*ich, magic_kernel, workspace, pix);
 	// https://petewarden.com/2015/04/20/why-gemm-is-at-the-heart-of-deep-learning/
 	int param[16];
 	param[0] = ch;		// M
 	param[1] = wcol*hcol /* *batch */;// N
 	param[2] = k*k*ich;	// K
-	coWrite(0, param[2]*param[1]*sizeof(float), workspace); // a
-	coWrite(1, param[0]*param[2]*sizeof(float), weights); // b
+	coWrite(0, param[0]*param[2]*sizeof(float), weights); // a
+	coWrite(1, param[2]*param[1]*sizeof(float), workspace); // b
 	coRun(sgemm_program[1], param[0]/8+1, param[1]/8+1, 1, param);
 	coRead(2, param[0]*param[1]*sizeof(float), outputs); // c
 

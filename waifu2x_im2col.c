@@ -18,7 +18,7 @@
 #define debug_s(x)
 #endif
 
-//#define USE_GL
+#define USE_GL
 #if defined(USE_OCL)
 #include "sgemm_ocl1.h"
 #define	sgemm_finish()		sgemm_ocl_finish()
