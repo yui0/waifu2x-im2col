@@ -13,13 +13,25 @@
 #define _DEBUG
 #ifdef _DEBUG
 #define debug_s(x)	{x;}
+#include "clock.h"
 #else
 #define debug_s(x)
 #endif
 
-#include "clock.h"
-//#include "sgemm_ocl1.h"
+//#define USE_GL
+#if defined(USE_OCL)
+#include "sgemm_ocl1.h"
+#define	sgemm_finish()		sgemm_ocl_finish()
+#define	convolution_LReLU	ocl_convolution_LReLU
+#elif defined(USE_GL)
 #include "sgemm_gl1.h"
+#define	sgemm_finish()		sgemm_gl_finish()
+#define	convolution_LReLU	gl_convolution_LReLU
+#else
+#include "sgemm_cpu.h"
+#define	sgemm_finish()
+#define	convolution_LReLU	cpu_convolution_LReLU
+#endif
 
 #define PARG_IMPLEMENTATION
 #include "parg.h"
@@ -187,7 +199,7 @@ void result(char *name, int w, int h)
 	free(o);
 }
 
-void waifu2x_ocl_run(CatsEye *cat, float *yuv, uint8_t *s, int sx, int sy, uint8_t *p, int wx)
+void waifu2x_run(CatsEye *cat, float *yuv, uint8_t *s, int sx, int sy, uint8_t *p, int wx)
 {
 	float *u = yuv + 256*256*4;
 	float *v = yuv + 256*256*5;
@@ -233,18 +245,7 @@ void waifu2x_ocl_run(CatsEye *cat, float *yuv, uint8_t *s, int sx, int sy, uint8
 	for (int i=0; i<cat->layers; i++) {
 		debug_s(printf("ch in:%d ch out:%d %d %d w:%2.4f b:%2.4f\n", cat->u[i].in, cat->u[i].out, (cat->u[i].in+3)/4, cat->ws[i], cat->wdata[cat->ws[i]], cat->bdata[cat->bs[i]]));
 
-		//ocl_convolution_LReLU(X, cat->u[i].in, 256, 256, &cat->wdata[cat->ws[i]], cat->u[i].ksize, cat->u[i].padding, cat->u[i].stride, X, cat->u[i].out, &cat->bdata[cat->bs[i]]);
-		gl_convolution_LReLU(X, cat->u[i].in, 256, 256, &cat->wdata[cat->ws[i]], cat->u[i].ksize, cat->u[i].padding, cat->u[i].stride, X, cat->u[i].out, &cat->bdata[cat->bs[i]]);
-
-//		ocl_conv_LReLU(inputs, cat->u[i].in, 256, 256, cat->ws[i], cat->u[i].ksize, cat->u[i].padding, cat->u[i].stride, outputs, cat->u[i].out, cat->bs[i]);
-
-/*		if (inputs) {
-			outputs = inputs;
-			inputs = 0;
-		} else {
-			inputs = outputs;
-			outputs = 0;
-		}*/
+		convolution_LReLU(X, cat->u[i].in, 256, 256, &cat->wdata[cat->ws[i]], cat->u[i].ksize, cat->u[i].padding, cat->u[i].stride, X, cat->u[i].out, &cat->bdata[cat->bs[i]]);
 
 #ifdef _DEBUG
 //		oclRead(_args[0].p, sizeof(float)*(ocl_off+inputs), sizeof(float)*256*256*cat->u[i].out, X);
@@ -311,7 +312,7 @@ void waifu2x_ocl_run(CatsEye *cat, float *yuv, uint8_t *s, int sx, int sy, uint8
 	}
 }
 
-int waifu2x_ocl(char *name, char *output, char *model, float scale)
+int waifu2x(char *name, char *output, char *model, float scale)
 {
 	uint8_t *pixels;
 	int w, h, bpp;
@@ -367,13 +368,16 @@ int waifu2x_ocl(char *name, char *output, char *model, float scale)
 	int device = 0;
 //	sgemm_ocl_init(platform, device, 2576980377);
 //	sgemm_ocl_init(platform, device, 1576980377);
-	//sgemm_ocl_init(platform, device, size);
-	//ocl_conv_init(cat.wdata, cat.wsize, cat.bdata, cat.bsize, off*2);
+#if defined(USE_OCL)
+	sgemm_ocl_init(platform, device, size);
+	ocl_conv_init(cat.wdata, cat.wsize, cat.bdata, cat.bsize, off*2);
+#elif defined(USE_GL)
 	sgemm_gl_init(size, size, size);
+#endif
 
 	float *yuv = calloc(256*256*(4+2), sizeof(float));
 //	uint8_t *o = calloc(XSIZE*YSIZE, 3);
-//	waifu2x_ocl_run(&cat, yuv, pix, sx, sy, o, 256);
+//	waifu2x_run(&cat, yuv, pix, sx, sy, o, 256);
 //	stbi_write_png("output2x.png", XSIZE, YSIZE, 3, o, 0);
 	printf("%d %d -> %d %d *%f\n", w, h, sx, sy, scale);
 	uint8_t *o = calloc(sx*sy, 3);
@@ -382,15 +386,14 @@ int waifu2x_ocl(char *name, char *output, char *model, float scale)
 			int ox = x+256 > sx ? sx-(256+1) : x;
 			int oy = y+256 > sy ? sy-(256+1) : y;
 			printf("%d %d\n", ox, oy);
-			waifu2x_ocl_run(&cat, yuv, pix+(ox+oy*sx)*3, sx, sy, o+(ox+oy*sx)*3, sx);
+			waifu2x_run(&cat, yuv, pix+(ox+oy*sx)*3, sx, sy, o+(ox+oy*sx)*3, sx);
 		}
 	}
 //	stbi_write_png(output, sx, sy, 3, o, 0);
 	free(yuv);
 	free(pix);
 
-//	sgemm_ocl_finish();
-	sgemm_gl_finish();
+	sgemm_finish();
 
 	// shrink edge by -16
 	sx -= 16;
@@ -458,7 +461,7 @@ int main(int argc, char* argv[])
 		usage(stderr, argv);
 		return 1;
 	}
-	waifu2x_ocl(name, output, model, scale);
+	waifu2x(name, output, model, scale);
 
 	return 0;
 }
