@@ -28,12 +28,24 @@ inline void sgemm_cpu(char ta, char tb, int M, int N, int K, float *A, float *B,
 			C[n + m*N] = acc;
 		}
 	}*/
-	for (int m=0; m<M; ++m) {
+/*	for (int m=0; m<M; m++) { // slow
+		for (int n=0; n<N; n++) {
+//			float acc = 0.0f;
+			for (int k=0; k<K; k++) {
+//				acc += A[k + m*M] * B[n + k*N];
+				C[m*N+n] += A[k + m*M] * B[n + k*N];
+			}
+//			C[n + m*N] = acc;
+		}
+	}*/
+	memset(C, 0, M*N*sizeof(float));
+	for (int m=0; m<M; ++m) { // fast
 		for (int k=0; k<K; ++k) {
 			//register float A_PART = ALPHA*A[i*lda+k];
 			for (int n=0; n<N; ++n) {
 //				C[i*ldc+j] += A_PART*B[k*ldb+j];
-				C[m*N+n] += A[m*M+k] * B[k*N+n];
+//				C[m*N+n] += A[m*M+k] * B[k*N+n];
+				C[m*N+n] += A[m*K+k] * B[k*N+n];
 			}
 		}
 	}
@@ -86,7 +98,7 @@ static inline void cpu_convolution_LReLU(float *inputs, int ich, int w, int h, f
 
 	// gemm('N', 'N', ch, wcol*hcol, k*k, magic_kernel, workspace, pix);
 	// https://petewarden.com/2015/04/20/why-gemm-is-at-the-heart-of-deep-learning/
-	sgemm_cpu('N', 'N', ch, wcol*hcol/* *batch */, k*k, weights, workspace, outputs);
+	sgemm_cpu('N', 'N', ch, wcol*hcol/* *batch */, k*k*ich, weights, workspace, outputs);
 
 	float *p = outputs;
 	for (int i=0; i<ch; i++) {
