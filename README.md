@@ -1,13 +1,13 @@
 # waifu2x-im2col
 
 Fast waifu2x converter with GPU optimization.
-Using OpenCL and im2col.
+Using OpenCL or OpenGL and im2col.
 
 ## Platform
 
-- Linux with OpenCL
-- macOS with OpenCL
-- Windows with OpenCL
+- Linux with OpenCL or OpenGL
+- macOS with OpenCL or OpenGL
+- Windows with OpenCL or OpenGL
 
 ## Download
 
@@ -15,13 +15,36 @@ Using OpenCL and im2col.
 
 ## How to build on macOS
 
-```bash
+```
+$ #/usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
+$ brew install glfw
 $ make
 ```
 
 ## How to build on Linux
 
+- OpenCL
+
 ```bash
+# cat /etc/yum.repos.d/rocm.repo 
+[ROCm]
+name=ROCm
+#baseurl=http://repo.radeon.com/rocm/yum/2.2/
+baseurl=http://repo.radeon.com/rocm/yum/4.0/
+enabled=1
+gpgcheck=0
+
+# dnf install opencl-headers mesa-libOpenCL ocl-icd-devel
+# dnf install rocm-clang-ocl rocm-opencl rocm-opencl-devel rocm-utils
+
+$ make
+```
+
+- OpenGL
+
+```bash
+# #dnf install mesa-libgbm-devel libdrm-devel mesa-libGL-devel mesa-libGLU-devel mesa-libEGL-devel mesa-libGLES-devel
+# dnf install glfw-devel
 $ make
 ```
 
@@ -50,6 +73,16 @@ $ make
 - Still in the ‘Linker’ submenu, select ‘Input’.
 - In the ‘Additional Dependencies’ field click on the arrow that appears at the end of the field and choose Edit…
 - In the dialog that appears enter “OpenCL.lib”
+
+1. Installing OpenGL
+
+- nupengl.core with NuGet
+
+2. Linking OpenGL
+
+- Choose ‘Linker-> General’.
+- In the ‘Additional Dependencies’ field click on the arrow that appears at the end of the field and choose Edit…
+- In the dialog that appears enter “opengl32.lib”
 
 ## How to use
 
@@ -86,7 +119,7 @@ Maximum memory allocation size is 2254046412 bytes
 ![Normal](waifu_d.jpg)
 
 ### Waifu2x Resize
-- ./waifu2x_ocl -s 2.0 -m noise3_model.json waifu_s.jpg -o waifu_d.png
+- ./waifu2x_im2col -s 2.0 -m noise3_model.json waifu_s.jpg -o waifu_d.png
 ![Waifu2x](waifu_d.png)
 
 ## References

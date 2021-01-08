@@ -64,10 +64,12 @@ layout (std430, binding = 2) writeonly buffer ssbC {
 };
 uniform int param[16]; // 0:M 1:N 2:K
 
-void main() {
+void main() { // C := A * B
 	int M = param[0];
 	int N = param[1];
 	int K = param[2];
+//	float alpha = param[3];
+//	float beta = param[4];
 
 	// Thread identifiers
 	uint globalRow = gl_GlobalInvocationID.x; // Row ID of C (0..M)
@@ -84,6 +86,7 @@ void main() {
 	// Store the result
 	//C[globalCol*M + globalRow] = acc;
 	C[globalCol + globalRow*N] = acc; // Row major
+//	C[globalCol + globalRow*N] = alpha * acc + beta * C[globalCol + globalRow*N]; // Row major
 	// Store the result with Leaky ReLU
 //	C[globalCol + globalRow*N] = max(acc, 0.0) + min(acc, 0.0) * 0.1 + bias[globalRow]; // Row major
 	//C[globalCol + globalRow*N] = max(acc, 0.0) + min(acc, 0.0) * 0.1; // Row major
@@ -199,6 +202,7 @@ static inline void gl_convolution_LReLU(float *inputs, int ich, int w, int h, fl
 	// gemm('N', 'N', ch, wcol*hcol, k*k*ich, magic_kernel, workspace, pix);
 	// https://petewarden.com/2015/04/20/why-gemm-is-at-the-heart-of-deep-learning/
 	int param[16];
+#if 1
 	param[0] = ch;		// M
 	param[1] = wcol*hcol /* *batch */;// N
 	param[2] = k*k*ich;	// K
@@ -206,6 +210,15 @@ static inline void gl_convolution_LReLU(float *inputs, int ich, int w, int h, fl
 	coWrite(1, param[2]*param[1]*sizeof(float), workspace); // b
 	coRun(sgemm_program[1], param[0]/8+1, param[1]/8+1, 1, param);
 	coRead(2, param[0]*param[1]*sizeof(float), outputs); // c
+#else
+	param[0] = wcol*hcol;	// M
+	param[1] = ch;		// N
+	param[2] = k*k*ich;	// K
+	coWrite(0, param[2]*param[1]*sizeof(float), workspace); // a
+	coWrite(1, param[0]*param[2]*sizeof(float), weights); // b
+	coRun(sgemm_program[1], param[0]/8+1, param[1]/8+1, 1, param);
+	coRead(2, param[0]*param[1]*sizeof(float), outputs); // c
+#endif
 
 	float *p = outputs;
 	for (int i=0; i<ch; i++) {

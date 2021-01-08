@@ -96,9 +96,11 @@ static inline void cpu_convolution_LReLU(float *inputs, int ich, int w, int h, f
 	int hcol = (h + 2 * pad - k) / stride + 1;
 	int wcol = (w + 2 * pad - k) / stride + 1;
 
-	// gemm('N', 'N', ch, wcol*hcol, k*k*ich, magic_kernel, workspace, pix);
+	// gemm('N', 'N', ch, wcol*hcol*batch, k*k*ich, magic_kernel, workspace, pix);
 	// https://petewarden.com/2015/04/20/why-gemm-is-at-the-heart-of-deep-learning/
 	sgemm_cpu('N', 'N', ch, wcol*hcol/* *batch */, k*k*ich, weights, workspace, outputs);
+	// output := workspace * weights
+//	sgemm_cpu('N', 'N', wcol*hcol, ch, k*k*ich, workspace, weights, outputs);
 
 	float *p = outputs;
 	for (int i=0; i<ch; i++) {

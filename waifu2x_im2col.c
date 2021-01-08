@@ -1,7 +1,7 @@
 //---------------------------------------------------------
 //	Cat's eye
 //
-//		©2020 Yuichiro Nakada
+//		©2020-2021 Yuichiro Nakada
 //---------------------------------------------------------
 
 // clang -Os waifu2x_im2col.c -o waifu2x_im2col `pkg-config --libs --cflags gl egl gbm` -lglfw -lm
@@ -18,9 +18,10 @@
 #define debug_s(x)
 #endif
 
-#define USE_GL
+#define USE_OCL
+//#define USE_GL
 #if defined(USE_OCL)
-#include "sgemm_ocl1.h"
+#include "sgemm_ocl2.h"
 #define	sgemm_finish()		sgemm_ocl_finish()
 #define	convolution_LReLU	ocl_convolution_LReLU
 #elif defined(USE_GL)
@@ -49,7 +50,7 @@
 typedef struct {
 	int type;	// MLP, CONV, MAXPOOL
 	int act;	// activation function type
-	int in;	// input channel
+	int in;		// input channel
 	int out;	// output channel
 	int size;	// input size (ch * x * y)
 	int width;	// input width
@@ -130,10 +131,10 @@ int CatsEye_loadJson(CatsEye *this, char *name)
 		int padW = json_object_get_number(o, "padW");
 		int padH = json_object_get_number(o, "padH");
 		this->u[i].ksize = kW;
-//		this->u[i].stride = 1;
-//		this->u[i].padding = 1;
-		this->u[i].stride = json_object_has_value(o, "dW") ? dW : 1;
-		this->u[i].padding = json_object_has_value(o, "dW") ? padW : 1;
+		this->u[i].stride = 1;
+		this->u[i].padding = 1;
+//		this->u[i].stride = json_object_has_value(o, "dW") ? dW : 1;
+//		this->u[i].padding = json_object_has_value(o, "padW") ? padW : 1;
 		this->u[i].in = in;
 		this->u[i].out = out;
 
@@ -246,6 +247,7 @@ void waifu2x_run(CatsEye *cat, float *yuv, uint8_t *s, int sx, int sy, uint8_t *
 		debug_s(printf("ch in:%d ch out:%d %d %d w:%2.4f b:%2.4f\n", cat->u[i].in, cat->u[i].out, (cat->u[i].in+3)/4, cat->ws[i], cat->wdata[cat->ws[i]], cat->bdata[cat->bs[i]]));
 
 		convolution_LReLU(X, cat->u[i].in, 256, 256, &cat->wdata[cat->ws[i]], cat->u[i].ksize, cat->u[i].padding, cat->u[i].stride, X, cat->u[i].out, &cat->bdata[cat->bs[i]]);
+		//ocl_conv_LReLU(X, cat->u[i].in, 256, 256, &cat->wdata[cat->ws[i]], cat->u[i].ksize, cat->u[i].padding, cat->u[i].stride, X, cat->u[i].out, &cat->bdata[cat->bs[i]]);
 
 #ifdef _DEBUG
 //		oclRead(_args[0].p, sizeof(float)*(ocl_off+inputs), sizeof(float)*256*256*cat->u[i].out, X);
